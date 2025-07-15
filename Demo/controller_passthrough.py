@@ -87,8 +87,18 @@ def _approximate_axes(x_val: float, y_val: float, points: int, directions: int) 
     if r <= DEADZONE:
         return 0, 0
 
+    # Determine which radial step we fall into.  The stick should not
+    # register movement until the radius reaches the first step.  Once a
+    # threshold is crossed we hold that distance until the next threshold is
+    # exceeded, matching the behaviour described for the approximate mode.
     step = 1.0 / points
-    level = min(points, max(1, int(r / step + 0.5)))
+
+    level = int(r / step)
+    if level == 0:
+        return 0, 0
+    if level > points:
+        level = points
+
     radius = level * step
 
     angle = math.atan2(y_val, x_val)
