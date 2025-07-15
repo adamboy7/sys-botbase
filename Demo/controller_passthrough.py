@@ -35,18 +35,46 @@ def handle_stick(
     last_state: tuple[int, int],
     last_time: float,
     mode: str = "polling",
+    *,
+    points: int = 4,
+    directions: int = 8,
 ) -> tuple[tuple[int, int], float]:
     """Send stick updates according to the selected mode."""
     now = time.monotonic()
-    x = int((x_val if abs(x_val) > DEADZONE else 0) * 32767)
-    y = int((y_val if abs(y_val) > DEADZONE else 0) * 32767)
 
-    if mode == "polling":
-        if (x, y) != last_state and now - last_time >= STICK_INTERVAL:
-            send_cmd(sock, f"setStick {name} {x} {y}")
-            return (x, y), now
+    if mode == "approximate":
+        x, y = _approximate_axes(x_val, y_val, points, directions)
+    else:
+        x = int((x_val if abs(x_val) > DEADZONE else 0) * 32767)
+        y = int((y_val if abs(y_val) > DEADZONE else 0) * 32767)
+
+    if (x, y) != last_state and now - last_time >= STICK_INTERVAL:
+        send_cmd(sock, f"setStick {name} {x} {y}")
+        return (x, y), now
 
     return last_state, last_time
+
+
+def _approximate_axes(x_val: float, y_val: float, points: int, directions: int) -> tuple[int, int]:
+    """Quantize stick position into discrete steps."""
+    import math
+
+    r = math.hypot(x_val, y_val)
+    if r <= DEADZONE:
+        return 0, 0
+
+    step = 1.0 / points
+    level = min(points, max(1, int(r / step + 0.5)))
+    radius = level * step
+
+    angle = math.atan2(y_val, x_val)
+    dir_step = 2 * math.pi / directions
+    dir_index = int((angle + math.pi) / dir_step + 0.5) % directions
+    quant_angle = dir_index * dir_step - math.pi
+
+    qx = int(radius * math.cos(quant_angle) * 32767)
+    qy = int(radius * math.sin(quant_angle) * 32767)
+    return qx, qy
 
 
 def send_cmd(sock: socket.socket, cmd: str) -> None:
@@ -61,9 +89,21 @@ def main() -> None:
     parser.add_argument(
         "-m",
         "--mode",
-        choices=["polling"],
+        choices=["polling", "approximate"],
         default="polling",
         help="stick update mode",
+    )
+    parser.add_argument(
+        "--points",
+        type=int,
+        default=4,
+        help="number of distance steps for approximate mode",
+    )
+    parser.add_argument(
+        "--directions",
+        type=int,
+        default=8,
+        help="direction resolution for approximate mode",
     )
     args = parser.parse_args()
 
@@ -130,6 +170,8 @@ def main() -> None:
                 left_state,
                 last_left_time,
                 args.mode,
+                points=args.points,
+                directions=args.directions,
             )
             right_state, last_right_time = handle_stick(
                 sock,
@@ -139,6 +181,8 @@ def main() -> None:
                 right_state,
                 last_right_time,
                 args.mode,
+                points=args.points,
+                directions=args.directions,
             )
             time.sleep(0.01)
     finally:
