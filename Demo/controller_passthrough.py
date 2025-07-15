@@ -3,6 +3,16 @@ import socket
 import time
 import pygame
 
+
+# Visualizer configuration
+WINDOW_SIZE = (400, 200)
+STICK_RADIUS = 80
+LEFT_CENTER = (100, 100)
+RIGHT_CENTER = (300, 100)
+DEADZONE_COLOR = (200, 200, 200)
+REAL_COLOR = (255, 0, 0)
+SIM_COLOR = (0, 0, 255)
+
 BUTTON_MAP = {
     0: "A",
     1: "B",
@@ -53,6 +63,18 @@ def handle_stick(
         return (x, y), now
 
     return last_state, last_time
+
+
+def _simulated_axes(
+    x_val: float, y_val: float, mode: str, *, points: int, directions: int
+) -> tuple[float, float]:
+    """Compute the stick values that would be sent."""
+    if mode == "approximate":
+        sx, sy = _approximate_axes(x_val, y_val, points, directions)
+        return sx / 32767.0, sy / 32767.0
+    sx = x_val if abs(x_val) > DEADZONE else 0.0
+    sy = y_val if abs(y_val) > DEADZONE else 0.0
+    return sx, sy
 
 
 def _approximate_axes(x_val: float, y_val: float, points: int, directions: int) -> tuple[int, int]:
@@ -109,6 +131,10 @@ def main() -> None:
 
     pygame.init()
     pygame.joystick.init()
+
+    screen = pygame.display.set_mode(WINDOW_SIZE)
+    pygame.display.set_caption("Stick Visualizer")
+    clock = pygame.time.Clock()
 
     if pygame.joystick.get_count() == 0:
         raise SystemExit("No joystick detected")
@@ -184,7 +210,32 @@ def main() -> None:
                 points=args.points,
                 directions=args.directions,
             )
-            time.sleep(0.01)
+            # compute simulated positions for visualization
+            sim_left = _simulated_axes(
+                axis[0], axis[1], args.mode, points=args.points, directions=args.directions
+            )
+            sim_right = _simulated_axes(
+                axis[2], axis[3], args.mode, points=args.points, directions=args.directions
+            )
+
+            screen.fill((255, 255, 255))
+            for center in (LEFT_CENTER, RIGHT_CENTER):
+                pygame.draw.circle(screen, (0, 0, 0), center, STICK_RADIUS, 1)
+                pygame.draw.circle(screen, DEADZONE_COLOR, center, int(DEADZONE * STICK_RADIUS))
+
+            def _to_px(center, vec):
+                return (
+                    int(center[0] + vec[0] * STICK_RADIUS),
+                    int(center[1] + vec[1] * STICK_RADIUS),
+                )
+
+            pygame.draw.circle(screen, REAL_COLOR, _to_px(LEFT_CENTER, (axis[0], axis[1])), 5)
+            pygame.draw.circle(screen, SIM_COLOR, _to_px(LEFT_CENTER, sim_left), 5)
+            pygame.draw.circle(screen, REAL_COLOR, _to_px(RIGHT_CENTER, (axis[2], axis[3])), 5)
+            pygame.draw.circle(screen, SIM_COLOR, _to_px(RIGHT_CENTER, sim_right), 5)
+
+            pygame.display.flip()
+            clock.tick(60)
     finally:
         sock.close()
 
