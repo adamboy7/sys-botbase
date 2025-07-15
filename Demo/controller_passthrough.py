@@ -14,10 +14,11 @@ REAL_COLOR = (255, 0, 0)
 SIM_COLOR = (0, 0, 255)
 
 BUTTON_MAP = {
-    0: "A",
-    1: "B",
-    2: "X",
-    3: "Y",
+    # Remap buttons so physical layout matches the Switch
+    0: "B",  # Cross -> B (south)
+    1: "A",  # Circle -> A (east)
+    2: "Y",  # Square -> Y (west)
+    3: "X",  # Triangle -> X (north)
     4: "MINUS",
     5: "HOME",
     6: "PLUS",
