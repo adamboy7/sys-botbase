@@ -54,9 +54,10 @@ def handle_stick(
 
     if mode == "approximate":
         x, y = _approximate_axes(x_val, y_val, points, directions)
+        y = -y  # Switch expects up as positive
     else:
         x = int((x_val if abs(x_val) > DEADZONE else 0) * 32767)
-        y = int((y_val if abs(y_val) > DEADZONE else 0) * 32767)
+        y = -int((y_val if abs(y_val) > DEADZONE else 0) * 32767)
 
     if (x, y) != last_state and now - last_time >= STICK_INTERVAL:
         send_cmd(sock, f"setStick {name} {x} {y}")
