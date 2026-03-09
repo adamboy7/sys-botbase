@@ -1140,7 +1140,6 @@ void sub_click(void* arg)
             clickSequence(currentClick, &clickToken);
             free(currentClick); currentClick = NULL;
             mutexUnlock(&clickMutex);
-            printf("done\n");
         }
 
         clickToken = 0;
