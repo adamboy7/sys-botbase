@@ -49,9 +49,8 @@ char* currentClick = NULL;
 u8 touchToken = 0;
 u8 clickToken = 0;
 
-// fd counters and max size
-int fd_count = 0;
-int fd_size = 5;
+// fd count (always 1 for the single UDP socket)
+int fd_count = 1;
 
 // we aren't an applet
 u32 __nx_applet_type = AppletType_None;
@@ -888,42 +887,19 @@ int argmain(int argc, char** argv)
     return 0;
 }
 
-void add_to_pfds(struct pollfd* pfds[], int newfd, int* fd_count, int* fd_size)
-{
-    if (*fd_count == *fd_size) {
-        *fd_size *= 2;
-
-        *pfds = realloc(*pfds, sizeof(**pfds) * (*fd_size));
-    }
-
-    (*pfds)[*fd_count].fd = newfd;
-    (*pfds)[*fd_count].events = POLLIN;
-
-    (*fd_count)++;
-}
-
-void del_from_pfds(struct pollfd pfds[], int i, int* fd_count)
-{
-    pfds[i] = pfds[*fd_count - 1];
-
-    (*fd_count)--;
-}
 
 int main()
 {
     char* linebuf = malloc(sizeof(char) * MAX_LINE_LENGTH);
 
-    int c = sizeof(struct sockaddr_in);
     struct sockaddr_in client;
+    socklen_t client_len = sizeof(client);
 
-    struct pollfd* pfds = malloc(sizeof * pfds * fd_size);
+    struct pollfd pfds[1];
 
-    int listenfd = setupServerSocket();
-    pfds[0].fd = listenfd;
+    int udpfd = setupUDPSocket();
+    pfds[0].fd = udpfd;
     pfds[0].events = POLLIN;
-    fd_count = 1;
-
-    int newfd;
 
     Result rc;
     int fr_count = 0;
@@ -958,61 +934,45 @@ int main()
 
     while (true)
     {
-        poll(pfds, fd_count, -1);
+        poll(pfds, 1, -1);
         mutexLock(&freezeMutex);
-        for (int i = 0; i < fd_count; i++)
+
+        if (pfds[0].revents & POLLIN)
         {
-            if (pfds[i].revents & POLLIN)
+            int len = recvfrom(udpfd, linebuf, MAX_LINE_LENGTH - 1, 0, (struct sockaddr*)&client, &client_len);
+            if (len > 0)
             {
-                if (pfds[i].fd == listenfd)
-                {
-                    newfd = accept(listenfd, (struct sockaddr*)&client, (socklen_t*)&c);
-                    if (newfd != -1)
-                    {
-                        add_to_pfds(&pfds, newfd, &fd_count, &fd_size);
-                    }
-                    else {
-                        svcSleepThread(1e+9L);
-                        close(listenfd);
-                        listenfd = setupServerSocket();
-                        pfds[0].fd = listenfd;
-                        pfds[0].events = POLLIN;
-                        break;
-                    }
-                }
-                else
-                {
-                    bool readEnd = false;
-                    int readBytesSoFar = 0;
-                    while (!readEnd) {
-                        int len = recv(pfds[i].fd, &linebuf[readBytesSoFar], 1, 0);
-                        if (len <= 0)
-                        {
-                            close(pfds[i].fd);
-                            del_from_pfds(pfds, i, &fd_count);
-                            readEnd = true;
-                        }
-                        else
-                        {
-                            readBytesSoFar += len;
-                            if (linebuf[readBytesSoFar - 1] == '\n') {
-                                readEnd = true;
-                                linebuf[readBytesSoFar - 1] = 0;
+                // strip trailing newline if present
+                if (linebuf[len - 1] == '\n')
+                    len--;
+                linebuf[len] = 0;
 
-                                fflush(stdout);
-                                dup2(pfds[i].fd, STDOUT_FILENO);
+                // capture stdout via pipe so we can sendto() the response
+                int pipefd[2];
+                pipe(pipefd);
+                fflush(stdout);
+                int saved_stdout = dup(STDOUT_FILENO);
+                dup2(pipefd[1], STDOUT_FILENO);
+                close(pipefd[1]);
 
-                                parseArgs(linebuf, &argmain);
+                parseArgs(linebuf, &argmain);
 
-                                if (echoCommands) {
-                                    printf("%s\n", linebuf);
-                                }
-                            }
-                        }
-                    }
-                }
+                if (echoCommands)
+                    printf("%s\n", linebuf);
+
+                fflush(stdout);
+                dup2(saved_stdout, STDOUT_FILENO);
+                close(saved_stdout);
+
+                // send response in chunks sized to fit within a UDP datagram
+                char responsebuf[MAX_UDP_PAYLOAD];
+                ssize_t n;
+                while ((n = read(pipefd[0], responsebuf, MAX_UDP_PAYLOAD)) > 0)
+                    sendto(udpfd, responsebuf, n, 0, (struct sockaddr*)&client, client_len);
+                close(pipefd[0]);
             }
         }
+
         fr_count = getFreezeCount(false);
         if (fr_count == 0)
             freeze_thr_state = Idle;
@@ -1180,7 +1140,6 @@ void sub_click(void* arg)
             clickSequence(currentClick, &clickToken);
             free(currentClick); currentClick = NULL;
             mutexUnlock(&clickMutex);
-            printf("done\n");
         }
 
         clickToken = 0;

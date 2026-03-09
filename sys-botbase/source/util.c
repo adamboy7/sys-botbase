@@ -52,25 +52,24 @@ static const HidsysNotificationLedPattern flashpattern = {
     },
 };
 
-int setupServerSocket()
+int setupUDPSocket()
 {
-    int lissock;
+    int sock;
     int yes = 1;
     struct sockaddr_in server;
-    lissock = socket(AF_INET, SOCK_STREAM, 0);
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
 
-    setsockopt(lissock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
 
     server.sin_family = AF_INET;
     server.sin_addr.s_addr = INADDR_ANY;
-    server.sin_port = htons(6000);
+    server.sin_port = htons(UDP_PORT);
 
-    while (bind(lissock, (struct sockaddr*)&server, sizeof(server)) < 0)
+    while (bind(sock, (struct sockaddr*)&server, sizeof(server)) < 0)
     {
         svcSleepThread(1e+9L);
     }
-    listen(lissock, 3);
-    return lissock;
+    return sock;
 }
 
 u64 parseStringToInt(char* arg) {
